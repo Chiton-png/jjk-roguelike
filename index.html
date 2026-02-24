@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JJK: Cursed Arena</title>
+  <style>
+    :root {
+      --bg: #07070b;
+      --panel: #12121a;
+      --panel-2: #1b1b26;
+      --text: #eef1ff;
+      --muted: #a5acc8;
+      --accent: #6ea8fe;
+      --common: #9ca3af;
+      --uncommon: #4ade80;
+      --rare: #60a5fa;
+      --epic: #c084fc;
+      --danger: #f87171;
+      --warning: #facc15;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+      overflow: hidden;
+    }
+    #gameWrap { width: 100%; height: 100%; position: relative; }
+    #gameCanvas { width: 100%; height: 100%; display: block; background: radial-gradient(circle at center, #101018, #050509 70%); }
+    .overlay {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(4, 4, 10, 0.72);
+      backdrop-filter: blur(3px);
+      z-index: 5;
+    }
+    .overlay.show { display: flex; }
+    .menu-card {
+      width: min(760px, 92vw);
+      max-height: 88vh;
+      overflow-y: auto;
+      border: 1px solid #2a2a38;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(20,20,30,0.95), rgba(14,14,22,0.95));
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      padding: 24px;
+    }
+    h1 { margin: 0 0 6px; font-size: 2.4rem; letter-spacing: .04em; }
+    h2 { margin: 8px 0 12px; }
+    .subtitle { color: var(--muted); margin-bottom: 14px; }
+    .stack { display: grid; gap: 10px; }
+    .btn {
+      width: 100%; border: 1px solid #35354a; border-radius: 8px;
+      background: #161622; color: var(--text);
+      padding: 12px 14px; text-align: left; font-size: 0.98rem;
+      cursor: pointer; transition: all .15s ease;
+    }
+    .btn:hover:not(:disabled) { border-color: #6161a5; transform: translateY(-1px); background: #1c1c2b; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .chip { font-size: .78rem; color: #c5cae6; border: 1px solid #394055; border-radius: 999px; padding: 2px 8px; }
+    .hud {
+      position: absolute; left: 14px; top: 12px; z-index: 3; pointer-events: none;
+      font-size: 14px; text-shadow: 0 1px 2px #000;
+    }
+    .hud .line { margin-bottom: 6px; }
+    #bossBarWrap {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      width: min(740px, 84vw); z-index: 4; display: none;
+    }
+    #bossBarWrap.show { display: block; }
+    .boss-top { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: .86rem; }
+    .bar { height: 16px; border: 1px solid #333; border-radius: 999px; overflow: hidden; background: #16161d; }
+    .barFill { height: 100%; width: 100%; background: linear-gradient(90deg, #f87171, #ef4444); transition: width .2s linear; }
+    #powerupCards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+    .card {
+      border: 1px solid #2f3445; border-radius: 10px; padding: 12px; background: #131622;
+      cursor: pointer; transition: .15s;
+    }
+    .card:hover { transform: translateY(-2px); border-color: #7088cb; }
+    .rarity-common { border-color: color-mix(in srgb, var(--common) 42%, #303749); }
+    .rarity-uncommon { border-color: color-mix(in srgb, var(--uncommon) 52%, #243d2f); }
+    .rarity-rare { border-color: color-mix(in srgb, var(--rare) 52%, #22354b); }
+    .rarity-epic { border-color: color-mix(in srgb, var(--epic) 52%, #3a2746); }
+    .small { font-size: .82rem; color: var(--muted); }
+    .list { display: grid; gap: 8px; max-height: 56vh; overflow: auto; }
+    .entry { border: 1px solid #2c3142; border-radius: 8px; padding: 10px; background: #111522; }
+    .entry.locked { opacity: .56; filter: grayscale(1); }
+    .floatText {
+      position: absolute; z-index: 6; pointer-events: none; font-size: 14px; font-weight: 600;
+      text-shadow: 0 1px 2px #000;
+    }
+    #toast {
+      position: absolute; right: 12px; bottom: 12px; z-index: 7;
+      background: rgba(18,18,28,.9); border:1px solid #39405a; border-radius: 8px;
+      padding: 10px 12px; display: none;
+    }
+  </style>
+</head>
+<body>
+<div id="gameWrap">
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="hud" id="hud"></div>
+  <div id="bossBarWrap">
+    <div class="boss-top"><span id="bossName"></span><span id="bossPhase"></span></div>
+    <div class="bar"><div id="bossHpFill" class="barFill"></div></div>
+  </div>
+  <div id="toast"></div>
+
+  <div id="mainMenu" class="overlay show">
+    <div class="menu-card">
+      <h1>JJK: CURSED ARENA</h1>
+      <div class="subtitle">A top-down roguelike shooter in cursed fog.</div>
+      <div class="stack">
+        <button class="btn" id="startBtn">Start</button>
+        <button class="btn" id="continueBtn">Continue</button>
+        <button class="btn" data-open="settings">Settings</button>
+        <button class="btn" data-open="skills">Skills</button>
+        <button class="btn" data-open="achievements">Achievements</button>
+        <button class="btn" data-open="updates">Update Log</button>
+        <button class="btn" id="quitBtn">Quit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pauseMenu" class="overlay"><div class="menu-card"><h2>Paused</h2><div class="stack"><button class="btn" id="resumeBtn">Resume</button><button class="btn" id="toMenuBtn">Main Menu</button></div></div></div>
+
+  <div id="powerupMenu" class="overlay"><div class="menu-card"><h2>Choose a Power-Up</h2><div id="powerupCards"></div></div></div>
+
+  <div id="panelOverlay" class="overlay"><div class="menu-card"><h2 id="panelTitle"></h2><div id="panelContent"></div><div style="height:10px"></div><button class="btn" id="closePanel">Close</button></div></div>
+
+  <div id="gameOverMenu" class="overlay"><div class="menu-card"><h2>Run Ended</h2><div id="gameOverText" class="subtitle"></div><div class="stack"><button class="btn" id="restartBtn">Restart (R)</button><button class="btn" id="gameOverMenuBtn">Main Menu</button></div></div></div>
+</div>
+
+<script>
+const GAME_VERSION = "0.1.0";
+const CHANGELOG = [{ version: "0.1.0", date: "2026-02-24", items: ["Initial release", "20-wave loop with JJK-inspired bosses", "Power-up draft and achievements"] }];
+const RARITY_WEIGHT = { common: 62, uncommon: 27, rare: 9, epic: 2 };
+const RARITY_COLORS = { common: "var(--common)", uncommon: "var(--uncommon)", rare: "var(--rare)", epic: "var(--epic)" };
+
+const POWERUPS = [
+  { id:"flare", name:"Cursed Energy Flare", rarity:"common", unique:false, description:"+20% damage (multiplicative).", prereq:()=>true, apply:(g)=>g.player.damageMult*=1.2 },
+  { id:"blood", name:"Blood Manipulation", rarity:"uncommon", unique:false, description:"+1 extra bullet. Drain HP on shot.", prereq:()=>true, apply:(g)=>{g.player.extraBullets+=1; g.player.bloodManip=true;} },
+  { id:"boogie", name:"Boogie Woogie", rarity:"rare", unique:true, description:"Shift swaps with nearest enemy. Replaces dash.", prereq:()=>true, apply:(g)=>g.player.hasBoogie=true },
+  { id:"simpleDomain", name:"Simple Domain", rarity:"rare", unique:true, description:"Q creates anti-domain field for 4s (12s cd).", prereq:()=>true, apply:(g)=>g.player.hasSimpleDomain=true },
+  { id:"divergent", name:"Divergent Fist", rarity:"common", unique:false, description:"Bullet hits spawn a tracking echo hit (25%).", prereq:()=>true, apply:(g)=>g.player.hasDivergent=true },
+  { id:"flowing", name:"Flowing Red Scale", rarity:"rare", unique:false, description:"+25% damage, reduce Blood drain by 50% each stack to safe floor.", prereq:(g)=>g.player.upgrades.blood>0, apply:(g)=>{g.player.damageMult*=1.25; g.player.bloodDrainMult=Math.max(0.2, g.player.bloodDrainMult*0.5);} },
+  { id:"keen", name:"Keen Eye", rarity:"common", unique:false, description:"+8% crit chance.", prereq:()=>true, apply:(g)=>g.player.critChance+=0.08 },
+  { id:"ratio", name:"Ratio 7:3", rarity:"uncommon", unique:true, description:"Every 7th hit is guaranteed critical (tracked globally per run).", prereq:()=>true, apply:(g)=>g.player.hasRatio=true },
+  { id:"freeze", name:"Freezing Bullets", rarity:"uncommon", unique:false, description:"Hits apply stacking slow (max 40%), decays over time.", prereq:()=>true, apply:(g)=>g.player.hasFreeze=true },
+  { id:"miracle", name:"Miracle Life", rarity:"epic", unique:false, description:"Gain a revive layer. On death restart wave with halved revive HP.", prereq:()=>true, apply:(g)=>g.player.miracles+=1 },
+];
+
+const ENEMY_DEFS = {
+  basic: { hp: 24, speed: 70, dmg: 9, r: 14, color:"#8b5cf6" },
+  ranged:{ hp: 18, speed: 60, dmg: 8, r: 12, color:"#22d3ee" },
+  charger:{ hp: 28, speed: 80, dmg: 14, r: 13, color:"#f59e0b" },
+  tank:{ hp: 80, speed: 40, dmg: 16, r: 20, color:"#ef4444" },
+  swarm:{ hp: 10, speed: 100, dmg: 6, r: 9, color:"#84cc16" },
+  disaster:{ hp: 130, speed: 85, dmg: 18, r: 18, color:"#fb7185" },
+};
+
+const ACHIEVEMENTS = [
+["a1","Stand proud you are strong","Kill a boss using their main attack type."],
+["a2","Don’t worry, I’m the strongest","Defeat the game in under 15 minutes."],
+["a3","But you guys, with all your blessed talents, lost to a monkey like me who can’t even use jujutsu","Lose to Toji with 3 epics."],
+["a4","To the one who left it all behind! And his overwhelming intensity!!","Enter Toji’s second phase."],
+["a5","Turn up the Volume!! Because this is a funeral for the living!!","Survive any domain without using Simple Domain."],
+["a6","Throughout heaven and earth, I alone am the honored one","Clear Wave 20 without taking damage during Sukuna’s domain."],
+["a7","Love is the most twisted curse of all","Defeat Yuta after he copies your last upgrade."],
+["a8","It’s not about right or wrong. It’s about what I can do.","Win a wave while below 10% HP."],
+["a9","You should have burned everything you desired to a cinder","Deal 10,000 total damage in a single run."],
+["a10","The sound of the gion shoja bells echoes the impermanence of all things","Survive 60 seconds in any domain across a run."],
+["a11","This is getting interesting","Reach Loop 2."],
+["a12","Know your place","Kill 50 enemies with critical hits in one run."],
+["a13","A sorcerer is nothing but a con artist","Win a boss fight using only Blood Manipulation extra bullets final hits."],
+["a14","A little detour never hurt","Use Boogie Woogie to avoid a lethal hit."],
+["a15","You’re right… I’m you","Defeat Geto Phase 1 within 30 seconds."]
+].map(([id,title,desc])=>({id,title,description:desc}));
+
+class SaveManager {
+  static key = "jjk_cursed_arena_save";
+  static achKey = "jjk_cursed_arena_ach";
+  static load(){ try { return JSON.parse(localStorage.getItem(this.key)||"null"); } catch { return null; } }
+  static save(data){ localStorage.setItem(this.key, JSON.stringify(data)); }
+  static clear(){ localStorage.removeItem(this.key); }
+  static loadAch(){ try { return JSON.parse(localStorage.getItem(this.achKey)||"{}"); } catch { return {}; } }
+  static saveAch(data){ localStorage.setItem(this.achKey, JSON.stringify(data)); }
+}
+
+class AchievementManager {
+  constructor(game){ this.game=game; this.state=SaveManager.loadAch(); }
+  unlock(id){ if(this.state[id]?.unlocked) return; this.state[id]={unlocked:true, ts:Date.now()}; SaveManager.saveAch(this.state); this.game.toast(`Achievement Unlocked: ${ACHIEVEMENTS.find(a=>a.id===id)?.title||id}`); }
+}
+
+class Entity { constructor(x,y,r){ this.x=x; this.y=y; this.r=r; this.dead=false; } }
+class Enemy extends Entity {
+  constructor(type,x,y,scale=1){ const d=ENEMY_DEFS[type]; super(x,y,d.r); this.type=type; this.base=d; this.maxHp=d.hp*scale; this.hp=this.maxHp; this.speed=d.speed*(1+0.02*(scale-1)); this.damage=d.dmg*scale; this.cool=0; this.slow=0; this.tele=0; }
+  update(g,dt){
+    this.cool-=dt; this.slow=Math.max(0,this.slow-dt*0.08);
+    const s=this.speed*(1-this.slow);
+    const dx=g.player.x-this.x, dy=g.player.y-this.y, dist=Math.hypot(dx,dy)||1;
+    if(this.type==='charger'){
+      if(dist<220 && this.tele<=0 && this.cool<=0){ this.tele=0.5; this.cool=2; }
+      if(this.tele>0){ this.tele-=dt; if(this.tele<=0){ this.x += (dx/dist)*180; this.y += (dy/dist)*180; }} else { this.x += (dx/dist)*s*dt; this.y += (dy/dist)*s*dt; }
+    } else if(this.type==='ranged' && dist>140){ this.x += (dx/dist)*s*dt; this.y += (dy/dist)*s*dt; if(this.cool<=0){ this.cool=1.2; g.enemyBullets.push(new Projectile(this.x,this.y,dx/dist*220,dy/dist*220,8,this.damage,false)); } }
+    else { this.x += (dx/dist)*s*dt; this.y += (dy/dist)*s*dt; }
+    if(dist < this.r+g.player.r){ g.player.hit(this.damage, 'touch'); }
+  }
+  draw(ctx){ ctx.beginPath(); ctx.fillStyle=this.base.color; ctx.arc(this.x,this.y,this.r,0,Math.PI*2); ctx.fill(); if(this.tele>0){ctx.strokeStyle='#fff';ctx.strokeRect(this.x-16,this.y-16,32,32);} }
+}
+class Boss extends Enemy {
+  constructor(id,x,y,loop){ super('tank',x,y,1); this.id=id; this.loop=loop; this.phase=1; this.timer=0; this.name=id; this.icon='☯'; this.maxHp=500; this.hp=this.maxHp; this.damage=20; this.speed=62; this.domainCD=8; this.bloodFinalHitsOnly=true; this.applyLoop(); this.setById(); this.phaseStart=performance.now(); }
+  applyLoop(){ this.maxHp*=Math.pow(1.25,this.loop-1); this.hp=this.maxHp; this.damage*=Math.pow(1.15,this.loop-1); this.speed*=1+0.04*(this.loop-1); }
+  setById(){ if(this.id==='geto'){ this.name='Geto'; this.maxHp=450*Math.pow(1.25,this.loop-1); this.hp=this.maxHp; }
+    if(this.id==='yuta'){ this.name='Yuta'; this.maxHp=620*Math.pow(1.25,this.loop-1); this.hp=this.maxHp; }
+    if(this.id==='toji'){ this.name='Toji Fushiguro'; this.maxHp=700*Math.pow(1.25,this.loop-1); this.hp=this.maxHp; this.weapon='Playful Cloud'; }
+    if(this.id==='sukuna'){ this.name='15F Sukuna'; this.maxHp=840*Math.pow(1.25,this.loop-1); this.hp=this.maxHp; }
+  }
+  update(g,dt){
+    this.timer += dt; this.domainCD-=dt;
+    const dx=g.player.x-this.x,dy=g.player.y-this.y,dist=Math.hypot(dx,dy)||1;
+    this.x += (dx/dist)*this.speed*dt; this.y += (dy/dist)*this.speed*dt;
+    if(dist < this.r+g.player.r+4) g.player.hit(this.damage*dt*2, 'bossMelee');
+    if(this.id==='geto'){
+      if(this.timer>2){ this.timer=0; g.spawnEnemy('basic',3); if(this.phase===2) g.spawnEnemy('disaster',1); }
+      if(this.phase===1 && this.hp<=this.maxHp*0.5){ this.phase=2; this.name='Kenjaku'; }
+    }
+    if(this.id==='yuta'){
+      if(this.phase===1 && this.hp<=this.maxHp*0.66){ this.phase=2; }
+      if(this.phase===2 && this.hp<=this.maxHp*0.35){ this.phase=3; g.startDomain('yuta',7); }
+      if(this.phase===2 && this.timer>3){ this.timer=0; g.beamAttack(this.x,this.y,g.player.x,g.player.y,18); }
+      if(this.phase===1 && this.timer>2.4){ this.timer=0; g.player.hit(8,'copy'); }
+    }
+    if(this.id==='toji'){
+      if(this.phase===1 && this.hp<=this.maxHp*0.2){ this.phase=2; g.ach.unlock('a4'); this.weapon=Math.random()<0.5?'Playful Cloud':'Inverted Spear of Heaven'; }
+      if(this.phase===2 && this.timer>1.8){ this.timer=0; if(this.weapon.includes('Spear')) g.player.tempDamageNerf=2.2; else g.player.hit(this.damage*1.2,'tojiCloud'); }
+    }
+    if(this.id==='sukuna'){
+      if(this.domainCD<=0){ this.domainCD=10; g.startDomain('sukuna',6); }
+      if(this.timer>1.5){ this.timer=0; g.aoeSlash(this.x,this.y,160,22); }
+    }
+  }
+}
+
+class Projectile extends Entity {
+  constructor(x,y,vx,vy,dmg,fromPlayer=true,small=false){ super(x,y,small?4:6); this.vx=vx; this.vy=vy; this.damage=dmg; this.fromPlayer=fromPlayer; this.life=2; this.small=small; this.target=null; this.extra=false; }
+  update(g,dt){
+    this.life-=dt; if(this.life<=0) this.dead=true;
+    if(this.target && !this.target.dead){ const dx=this.target.x-this.x,dy=this.target.y-this.y,d=Math.hypot(dx,dy)||1; this.vx+=(dx/d)*280*dt; this.vy+=(dy/d)*280*dt; }
+    this.x += this.vx*dt; this.y += this.vy*dt;
+    if(this.x<0||this.x>g.w||this.y<0||this.y>g.h) this.dead=true;
+  }
+  draw(ctx){ ctx.beginPath(); ctx.arc(this.x,this.y,this.r,0,Math.PI*2); ctx.fillStyle=this.fromPlayer? (this.small?'#93c5fd':'#fde047'):'#fb7185'; ctx.fill(); }
+}
+
+class Player extends Entity {
+  constructor(x,y){ super(x,y,13); this.maxHp=100; this.hp=100; this.speed=230; this.fireRate=5; this.fireCd=0; this.damage=10; this.damageMult=1; this.critChance=.05; this.critMult=2; this.dashCd=0; this.invul=0; this.extraBullets=0; this.upgrades={}; this.hasBoogie=false; this.hasSimpleDomain=false; this.simpleCd=0; this.simpleTime=0; this.bloodManip=false; this.bloodDrainMult=1; this.hasDivergent=false; this.hasRatio=false; this.hitCounter=0; this.hasFreeze=false; this.miracles=0; this.miracleUsed=0; this.tempDamageNerf=0; }
+  hit(v,type){ if(this.invul>0) return; const final=Math.max(1,v); this.hp-=final; this.invul=0.2; game.trackDamageTaken(type,final); }
+}
+
+class Game {
+  constructor(){
+    this.canvas = document.getElementById('gameCanvas'); this.ctx=this.canvas.getContext('2d'); this.resize(); addEventListener('resize',()=>this.resize());
+    this.hud=document.getElementById('hud'); this.bossWrap=document.getElementById('bossBarWrap');
+    this.player=new Player(300,300); this.enemies=[]; this.projectiles=[]; this.enemyBullets=[]; this.floatTexts=[];
+    this.keys={}; this.mouse={x:0,y:0,down:false};
+    this.wave=1; this.loop=1; this.waveSpawnLeft=0; this.spawnCd=0; this.inWave=false; this.pickScreen=false; this.paused=false; this.gameOver=false;
+    this.domain={active:false,type:null,time:0,elapsed:0}; this.stats={ runStart:performance.now(), totalDamage:0, critKills:0, domainSurviveNoSimple:false, domainTime:0, bossFinalByBlood:true, sukunaDomainHit:false, yutaCopied:false };
+    this.settings={showFPS:true,screenShake:true,damageNumbers:true,fog:'med',master:1,sfx:1,music:0.3,smooth:true,autoFire:false};
+    this.last=performance.now(); this.fps=60; this.ach=new AchievementManager(this);
+    this.boss=null; this.lastPickedId=null; this.bind(); this.setupMenu(); this.updateContinue(); this.loopFrame();
+  }
+  resize(){ this.w=innerWidth; this.h=innerHeight; this.canvas.width=this.w; this.canvas.height=this.h; }
+  bind(){
+    addEventListener('keydown',(e)=>{ this.keys[e.key.toLowerCase()]=true; if(e.key==='Escape') this.togglePause(); if(e.key.toLowerCase()==='q') this.activateSimpleDomain(); if(e.key.toLowerCase()==='r'&&this.gameOver) this.newRun(); if(e.key==='Shift') this.shiftAction(); });
+    addEventListener('keyup',(e)=>this.keys[e.key.toLowerCase()]=false);
+    this.canvas.addEventListener('mousemove',(e)=>{ this.mouse.x=e.clientX; this.mouse.y=e.clientY; });
+    this.canvas.addEventListener('mousedown',()=>this.mouse.down=true); this.canvas.addEventListener('mouseup',()=>this.mouse.down=false);
+  }
+  setupMenu(){
+    const main=document.getElementById('mainMenu');
+    document.getElementById('startBtn').onclick=()=>{ if(SaveManager.load() && !confirm('Start New Run? Existing save will be replaced.')) return; this.newRun(); main.classList.remove('show'); };
+    document.getElementById('continueBtn').onclick=()=>{ this.loadRun(); main.classList.remove('show'); };
+    document.getElementById('quitBtn').onclick=()=>alert('You can close the tab.');
+    document.getElementById('resumeBtn').onclick=()=>this.togglePause(false);
+    document.getElementById('toMenuBtn').onclick=()=>{ this.paused=false; document.getElementById('pauseMenu').classList.remove('show'); document.getElementById('mainMenu').classList.add('show'); };
+    document.getElementById('restartBtn').onclick=()=>this.newRun();
+    document.getElementById('gameOverMenuBtn').onclick=()=>{ document.getElementById('gameOverMenu').classList.remove('show'); document.getElementById('mainMenu').classList.add('show'); };
+    for (const b of document.querySelectorAll('[data-open]')) b.onclick=()=>this.openPanel(b.dataset.open);
+    document.getElementById('closePanel').onclick=()=>document.getElementById('panelOverlay').classList.remove('show');
+  }
+  openPanel(type){
+    const title=document.getElementById('panelTitle'), content=document.getElementById('panelContent');
+    if(type==='settings'){
+      title.textContent='Settings'; content.innerHTML=`<div class='list'>
+      <div class='entry'>Show FPS: <input id='sFps' type='checkbox' ${this.settings.showFPS?'checked':''}></div>
+      <div class='entry'>Screen shake: <input id='sShake' type='checkbox' ${this.settings.screenShake?'checked':''}></div>
+      <div class='entry'>Damage numbers: <input id='sDmg' type='checkbox' ${this.settings.damageNumbers?'checked':''}></div>
+      <div class='entry'>Fog intensity: <select id='sFog'><option>low</option><option selected>med</option><option>high</option></select></div>
+      <div class='entry'>Auto-fire: <input id='sAuto' type='checkbox' ${this.settings.autoFire?'checked':''}></div>
+      <div class='entry'>Master Volume <input id='sM' type='range' min='0' max='1' step='0.01' value='${this.settings.master}'></div>
+      <div class='entry'>SFX Volume <input id='sS' type='range' min='0' max='1' step='0.01' value='${this.settings.sfx}'></div>
+      <div class='entry'>Music Volume <input id='sMu' type='range' min='0' max='1' step='0.01' value='${this.settings.music}'></div>
+      <div class='entry'>Smoothing (VSync-like): <input id='sSm' type='checkbox' ${this.settings.smooth?'checked':''}></div>
+      <div class='entry'>Keybinds: WASD/Arrows Move, LMB Shoot, Shift Dash/Boogie, Q Simple Domain, Esc Pause.</div>
+      </div>`;
+      setTimeout(()=>{
+        sFps.oninput=()=>this.settings.showFPS=sFps.checked; sShake.oninput=()=>this.settings.screenShake=sShake.checked;
+        sDmg.oninput=()=>this.settings.damageNumbers=sDmg.checked; sFog.oninput=()=>this.settings.fog=sFog.value;
+        sAuto.oninput=()=>this.settings.autoFire=sAuto.checked; sM.oninput=()=>this.settings.master=+sM.value;
+        sS.oninput=()=>this.settings.sfx=+sS.value; sMu.oninput=()=>this.settings.music=+sMu.value; sSm.oninput=()=>this.settings.smooth=sSm.checked;
+      },0);
+    }
+    if(type==='skills'){ title.textContent='Skills'; content.innerHTML=`<div class='list'>${POWERUPS.map(p=>`<div class='entry rarity-${p.rarity}'><b>${p.name}</b> <span class='chip'>${p.rarity}</span><div class='small'>${p.description}</div></div>`).join('')}</div>`; }
+    if(type==='achievements'){ title.textContent='Achievements'; const st=this.ach.state; content.innerHTML=`<div class='list'>${ACHIEVEMENTS.map(a=>{const u=st[a.id]?.unlocked;return`<div class='entry ${u?'':'locked'}'><b>${u?a.title:'?????'}</b><div class='small'>${u?a.description:'Locked silhouette'}</div><div class='small'>${u?new Date(st[a.id].ts).toLocaleString():''}</div></div>`;}).join('')}</div>`; }
+    if(type==='updates'){ title.textContent='Update Log'; content.innerHTML=`<div class='list'>${CHANGELOG.map(c=>`<div class='entry'><b>v${c.version}</b> <span class='small'>${c.date}</span><ul>${c.items.map(i=>`<li>${i}</li>`).join('')}</ul></div>`).join('')}</div>`; }
+    document.getElementById('panelOverlay').classList.add('show');
+  }
+  updateContinue(){ document.getElementById('continueBtn').disabled=!SaveManager.load(); }
+  toast(t){ const el=document.getElementById('toast'); el.textContent=t; el.style.display='block'; clearTimeout(this.toastT); this.toastT=setTimeout(()=>el.style.display='none',2800); }
+  newRun(){
+    this.player=new Player(this.w/2,this.h/2); this.enemies=[]; this.projectiles=[]; this.enemyBullets=[]; this.boss=null; this.wave=1; this.loop=1;
+    this.stats={ runStart:performance.now(), totalDamage:0, critKills:0, domainSurviveNoSimple:false, domainTime:0, bossFinalByBlood:true, sukunaDomainHit:false, yutaCopied:false };
+    this.gameOver=false; document.getElementById('gameOverMenu').classList.remove('show'); this.startWave();
+  }
+  startWave(){
+    this.inWave=true; this.waveSpawnLeft=10 + Math.floor(this.wave*2.2); if(this.wave%5===0) this.waveSpawnLeft += 8;
+    if(this.wave%5===0){ this.spawnBoss(); }
+  }
+  spawnBoss(){
+    const ids=['geto','yuta','toji','sukuna']; const idx=((Math.floor((this.wave-1)/5))%4); this.loop=Math.floor((this.wave-1)/20)+1;
+    this.boss=new Boss(ids[idx], this.w*0.5, 120, this.loop); if(this.loop>=2) this.ach.unlock('a11');
+  }
+  spawnEnemy(type,count=1){ for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2, r=Math.max(this.w,this.h)*0.45; const x=this.player.x+Math.cos(a)*r, y=this.player.y+Math.sin(a)*r; this.enemies.push(new Enemy(type,Math.max(20,Math.min(this.w-20,x)),Math.max(20,Math.min(this.h-20,y)),1+this.wave*0.05)); } }
+  shiftAction(){
+    if(this.player.hasBoogie){ const nearest=this.enemies.reduce((p,e)=>!p||distSq(this.player,e)<distSq(this.player,p)?e:p,null); if(nearest){ const px=this.player.x,py=this.player.y; this.player.x=nearest.x; this.player.y=nearest.y; nearest.x=px; nearest.y=py; this.player.invul=0.15; } }
+    else if(this.player.dashCd<=0){ const dx=(+!!this.keys['d']-+!!this.keys['a']) + (+!!this.keys['arrowright']-+!!this.keys['arrowleft']); const dy=(+!!this.keys['s']-+!!this.keys['w']) + (+!!this.keys['arrowdown']-+!!this.keys['arrowup']); const m=Math.hypot(dx,dy)||1; this.player.x+=dx/m*120; this.player.y+=dy/m*120; this.player.invul=.2; this.player.dashCd=2; }
+  }
+  activateSimpleDomain(){ if(this.player.hasSimpleDomain && this.player.simpleCd<=0){ this.player.simpleTime=4; this.player.simpleCd=12; } }
+  fire(){
+    if(this.player.fireCd>0) return; const dx=this.mouse.x-this.player.x,dy=this.mouse.y-this.player.y,d=Math.hypot(dx,dy)||1;
+    const bullets=1+this.player.extraBullets;
+    for(let i=0;i<bullets;i++){
+      const sp=480, spread=(i-(bullets-1)/2)*0.13, ca=Math.cos(spread), sa=Math.sin(spread), ndx=dx/d*ca-dy/d*sa, ndy=dx/d*sa+dy/d*ca;
+      const p=new Projectile(this.player.x,this.player.y,ndx*sp,ndy*sp,this.player.damage*this.player.damageMult,true,i>0); p.extra=i>0; this.projectiles.push(p);
+    }
+    if(this.player.bloodManip){ const drain=Math.max(0.2, 1*this.player.bloodDrainMult); this.player.hp=Math.max(1,this.player.hp-drain); }
+    this.player.fireCd=1/this.player.fireRate;
+  }
+  startDomain(type,dur){ this.domain={active:true,type,time:dur,elapsed:0}; }
+  aoeSlash(x,y,r,dmg){ if(Math.hypot(this.player.x-x,this.player.y-y)<r) this.player.hit(dmg,'slash'); }
+  beamAttack(x,y,tx,ty,dmg){ const n={x:tx-x,y:ty-y}; const mag=Math.hypot(n.x,n.y)||1; const nd={x:n.x/mag,y:n.y/mag}; const t=((this.player.x-x)*nd.x + (this.player.y-y)*nd.y); const px=x+nd.x*t, py=y+nd.y*t; const d=Math.hypot(this.player.x-px,this.player.y-py); if(d<28) this.player.hit(dmg,'beam'); }
+  waveClearCheck(){
+    if(this.inWave && this.waveSpawnLeft<=0 && this.enemies.length===0 && !this.boss){ this.inWave=false; if(this.player.hp/this.player.maxHp<0.1) this.ach.unlock('a8'); this.offerPowerups(); this.autoSave(); }
+  }
+  offerPowerups(){
+    const menu=document.getElementById('powerupMenu'), cards=document.getElementById('powerupCards'); menu.classList.add('show'); this.pickScreen=true;
+    const eligible=POWERUPS.filter(p=>p.prereq(this) && (!p.unique || !this.player.upgrades[p.id]));
+    const opts=[]; while(opts.length<3 && eligible.length){ const pick=weightedPick(eligible,RARITY_WEIGHT); if(!opts.includes(pick)) opts.push(pick); }
+    cards.innerHTML=opts.map(p=>`<div class='card rarity-${p.rarity}' data-id='${p.id}'><div class='row'><b>${p.name}</b><span class='chip' style='border-color:${RARITY_COLORS[p.rarity]}'>${p.rarity}</span></div><div class='small'>${p.description}</div><div class='small'>Stacks: ${this.player.upgrades[p.id]||0}</div></div>`).join('');
+    cards.querySelectorAll('.card').forEach(c=>c.onclick=()=>{ const pu=POWERUPS.find(p=>p.id===c.dataset.id); pu.apply(this); this.player.upgrades[pu.id]=(this.player.upgrades[pu.id]||0)+1; this.lastPickedId=pu.id; menu.classList.remove('show'); this.pickScreen=false; this.wave++; this.startWave(); this.autoSave(); });
+  }
+  trackDamageTaken(type,v){ if(this.boss?.id==='sukuna' && this.domain.active && this.domain.type==='sukuna') this.stats.sukunaDomainHit=true; }
+  die(){
+    if(this.player.miracles>0){ this.player.miracles--; this.player.miracleUsed++; this.player.hp=this.player.maxHp*Math.pow(0.5,this.player.miracleUsed); this.player.x=this.w/2; this.player.y=this.h/2; this.enemies=[]; this.projectiles=[]; this.enemyBullets=[]; if(this.boss) this.boss.hp=Math.min(this.boss.hp,this.boss.maxHp*0.8); return; }
+    this.gameOver=true; document.getElementById('gameOverText').textContent=`You reached wave ${this.wave}.`; document.getElementById('gameOverMenu').classList.add('show');
+    if(this.boss?.id==='toji' && (this.player.upgrades.miracle||0)>=3) this.ach.unlock('a3'); SaveManager.clear(); this.updateContinue();
+  }
+  autoSave(){ SaveManager.save({ wave:this.wave,loop:this.loop,player:JSON.parse(JSON.stringify(this.player)),stats:this.stats }); this.updateContinue(); }
+  loadRun(){ const s=SaveManager.load(); if(!s) return; this.newRun(); this.wave=s.wave; this.loop=s.loop; Object.assign(this.player,s.player); this.stats=s.stats||this.stats; this.startWave(); }
+  togglePause(force){ if(this.gameOver||this.pickScreen) return; this.paused = force!==undefined?force:!this.paused; document.getElementById('pauseMenu').classList.toggle('show',this.paused); if(this.paused) this.autoSave(); }
+  update(dt){
+    if(this.paused || this.pickScreen || this.gameOver || document.getElementById('mainMenu').classList.contains('show')) return;
+    this.player.invul=Math.max(0,this.player.invul-dt); this.player.fireCd=Math.max(0,this.player.fireCd-dt); this.player.dashCd=Math.max(0,this.player.dashCd-dt); this.player.simpleCd=Math.max(0,this.player.simpleCd-dt); this.player.simpleTime=Math.max(0,this.player.simpleTime-dt); this.player.tempDamageNerf=Math.max(0,this.player.tempDamageNerf-dt);
+    const dx=(+!!this.keys['d']-+!!this.keys['a']) + (+!!this.keys['arrowright']-+!!this.keys['arrowleft']); const dy=(+!!this.keys['s']-+!!this.keys['w']) + (+!!this.keys['arrowdown']-+!!this.keys['arrowup']); const m=Math.hypot(dx,dy)||1;
+    this.player.x=clamp(this.player.x+dx/m*this.player.speed*dt,14,this.w-14); this.player.y=clamp(this.player.y+dy/m*this.player.speed*dt,14,this.h-14);
+    if(this.mouse.down || this.settings.autoFire) this.fire();
+
+    this.spawnCd-=dt;
+    if(this.inWave && this.waveSpawnLeft>0 && this.spawnCd<=0){
+      this.spawnCd=Math.max(0.3, 1.2 - this.wave*0.03); this.waveSpawnLeft--;
+      const pool=['basic','basic','ranged','charger','swarm','tank']; this.spawnEnemy(pool[(Math.random()*pool.length)|0],1+(this.wave%5===0?1:0));
+    }
+
+    for(const e of this.enemies) e.update(this,dt);
+    if(this.boss){ this.boss.update(this,dt); this.bossWrap.classList.add('show'); document.getElementById('bossName').textContent=`${this.boss.name} ${this.boss.icon}`; document.getElementById('bossPhase').textContent=`Phase ${this.boss.phase}`; document.getElementById('bossHpFill').style.width=`${(this.boss.hp/this.boss.maxHp)*100}%`; }
+    else this.bossWrap.classList.remove('show');
+
+    for(const p of [...this.projectiles,...this.enemyBullets]) p.update(this,dt);
+
+    for(const p of this.projectiles){
+      for(const e of [...this.enemies, this.boss].filter(Boolean)) if(!e.dead && hitCircle(p,e)){
+        let crit = Math.random()<this.player.critChance;
+        this.player.hitCounter++; if(this.player.hasRatio && this.player.hitCounter%7===0){ crit=true; this.float("7:3",e.x,e.y-16,"#fff"); }
+        let dmg = p.damage*(this.player.tempDamageNerf>0?0.75:1); if(crit) dmg*=this.player.critMult;
+        e.hp -= dmg; this.stats.totalDamage += dmg;
+        if(this.player.hasFreeze) e.slow=Math.min(0.4, e.slow+0.05);
+        if(this.settings.damageNumbers) this.float(`${Math.round(dmg)}${crit?'!':''}`,e.x,e.y,crit?'#facc15':'#f8fafc');
+        if(this.player.hasDivergent){ const t=new Projectile(p.x,p.y,0,0,p.damage*0.25,true,true); t.target=e; this.projectiles.push(t); }
+        p.dead=true;
+        if(e.hp<=0){ e.dead=true; if(crit) this.stats.critKills++; if(this.boss && e===this.boss){
+          if(this.boss.id==='geto' && this.boss.phase===1 && (performance.now()-this.boss.phaseStart)<30000) this.ach.unlock('a15');
+          if(this.boss.id==='yuta' && this.stats.yutaCopied) this.ach.unlock('a7');
+          if(this.boss.id==='sukuna' && !this.stats.sukunaDomainHit) this.ach.unlock('a6');
+          this.boss=null;
+        }}
+      }
+    }
+    for(const p of this.enemyBullets) if(hitCircle(p,this.player)){ this.player.hit(p.damage,'enemyBullet'); p.dead=true; }
+
+    this.projectiles=this.projectiles.filter(p=>!p.dead); this.enemyBullets=this.enemyBullets.filter(p=>!p.dead); this.enemies=this.enemies.filter(e=>!e.dead);
+
+    if(this.domain.active){
+      this.domain.time-=dt; this.domain.elapsed+=dt; this.stats.domainTime+=dt;
+      let domainMult=1;
+      if(this.player.simpleTime>0){
+        const inside=true;
+        if(inside){ if(this.domain.type!=='sukuna') domainMult=0; else domainMult=0.4; }
+      }
+      if(domainMult>0 && Math.random()<dt*4) this.player.hit((this.domain.type==='sukuna'?6:3)*domainMult,'domain');
+      if(this.domain.time<=0){ if(this.player.simpleTime<=0) this.ach.unlock('a5'); this.domain.active=false; }
+    }
+
+    if(this.stats.totalDamage>=10000) this.ach.unlock('a9');
+    if(this.stats.critKills>=50) this.ach.unlock('a12');
+    if(this.stats.domainTime>=60) this.ach.unlock('a10');
+    if(this.wave>20 && ((performance.now()-this.stats.runStart)<900000)) this.ach.unlock('a2');
+
+    this.waveClearCheck();
+    if(this.player.hp<=0) this.die();
+  }
+  float(text,x,y,color){ const t={text,x,y,vy:-22,life:1,color}; this.floatTexts.push(t); }
+  draw(){
+    const ctx=this.ctx; ctx.clearRect(0,0,this.w,this.h);
+    ctx.fillStyle='#07070b'; ctx.fillRect(0,0,this.w,this.h);
+    this.drawFog(ctx);
+    if(this.domain.active){ ctx.fillStyle=this.domain.type==='sukuna'?'rgba(90,12,12,.25)':'rgba(35,45,95,.22)'; ctx.fillRect(0,0,this.w,this.h); this.drawDomainPattern(ctx); }
+    for(const p of this.projectiles) p.draw(ctx); for(const p of this.enemyBullets) p.draw(ctx); for(const e of this.enemies) e.draw(ctx); if(this.boss) this.boss.draw(ctx);
+    if(this.player.simpleTime>0){ ctx.strokeStyle='rgba(125,211,252,.9)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(this.player.x,this.player.y,120,0,Math.PI*2); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(this.player.x,this.player.y,this.player.r,0,Math.PI*2); ctx.fillStyle=this.player.invul>0?'#fff':'#93c5fd'; ctx.fill();
+
+    this.floatTexts=this.floatTexts.filter(t=>t.life>0); for(const t of this.floatTexts){ t.life-=1/60; t.y+=t.vy/60; ctx.fillStyle=t.color; ctx.fillText(t.text,t.x,t.y); }
+    this.hud.innerHTML=`<div class='line'>HP: ${Math.max(0,this.player.hp).toFixed(0)} / ${this.player.maxHp}</div>
+    <div class='line'>Wave: ${this.wave} ${this.loop>1?`(Loop ${this.loop})`:''}</div>
+    <div class='line'>Miracles: ${this.player.miracles}</div>
+    <div class='line'>Domain: ${this.player.hasSimpleDomain? (this.player.simpleCd<=0?'Ready':'CD '+this.player.simpleCd.toFixed(1)):'Not Learned'}</div>
+    <div class='line'>FPS: ${this.settings.showFPS?this.fps.toFixed(0):'--'}</div>`;
+  }
+  drawFog(ctx){ const n=this.settings.fog==='low'?18:this.settings.fog==='med'?34:58; const t=performance.now()*0.00014; for(let i=0;i<n;i++){ const x=((i*127.3+t*500)% (this.w+240))-120; const y=(Math.sin(i*3.11+t*5)*0.5+0.5)*this.h; const r=120+((i*17)%140); const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,'rgba(120,120,170,0.05)'); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); } }
+  drawDomainPattern(ctx){ ctx.strokeStyle='rgba(255,255,255,.08)'; for(let i=0;i<15;i++){ ctx.beginPath(); ctx.moveTo((i*140+performance.now()*0.05)%this.w,0); ctx.lineTo(((i*140+200)+performance.now()*0.05)%this.w,this.h); ctx.stroke(); } }
+  loopFrame(){ const now=performance.now(), dt=Math.min(.033,(now-this.last)/1000); this.fps=1/dt; this.last=now; this.update(dt); this.draw(); requestAnimationFrame(()=>this.loopFrame()); }
+}
+
+function weightedPick(arr, weights){ const sum=arr.reduce((s,a)=>s+(weights[a.rarity]||1),0); let r=Math.random()*sum; for(const a of arr){ r-=weights[a.rarity]||1; if(r<=0) return a; } return arr[arr.length-1]; }
+function hitCircle(a,b){ return (a.x-b.x)**2+(a.y-b.y)**2 <= (a.r+b.r)**2; }
+function distSq(a,b){ return (a.x-b.x)**2+(a.y-b.y)**2; }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+const game = new Game();
+</script>
+</body>
+</html>
